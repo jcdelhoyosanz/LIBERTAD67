@@ -4,6 +4,8 @@ const $=id=>document.getElementById(id), KEY='libertad67_v1', MS=60000;
 const defaults=()=>({version:1,settings:{goal:5,weight:0.5,wake:'07:00',rollover:'02:00',baseline:23,official:'2026-10-22'},events:[],stockEvents:[],packs:[],initialWeighingDone:false,goalHistory:{}});
 let db;try{const raw=localStorage.getItem(KEY);db=raw?JSON.parse(raw):defaults();if(!db||!Array.isArray(db.events)||!Array.isArray(db.stockEvents)||!Array.isArray(db.packs)||!db.settings)throw Error('Invalid');}catch(e){db=defaults();alert('No se pudieron leer los datos anteriores. No se sobrescribirán hasta guardar una operación. Si tenías datos, importa una copia de seguridad.');}
 db.goalHistory ||= {};
+// Una jornada seguida en directo se distingue de una con registros solo retroactivos.
+db.trackedDays ||= {};
 let active='today', selectedDay=null, tick=null, toastTimer=null, busy=false;
 const pad=n=>String(n).padStart(2,'0'), uid=()=>Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
 const fmt=(n,k=1)=>Number(n).toLocaleString('es-ES',{minimumFractionDigits:k,maximumFractionDigits:k});
@@ -29,10 +31,36 @@ const stamp=at=>new Date(at).toLocaleString('es-ES',{day:'2-digit',month:'2-digi
 const clock=at=>new Date(at).toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
 const dateLong=key=>localDate(key).toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
 function ask(title,text,opts={}){return new Promise(resolve=>{const d=$('dialog'),inp=$('dialogInput');$('dialogTitle').textContent=title;$('dialogText').textContent=text;$('dialogLabel').textContent=opts.label||'';$('dialogLabel').hidden=!opts.label;inp.hidden=!opts.label;inp.value=opts.value??'';inp.type=opts.type||'text';inp.min=opts.min||'';inp.max=opts.max||'';inp.step=opts.step||'any';$('dialogOk').textContent=opts.ok||'CONFIRMAR';d.querySelector('button[value="cancel"]').textContent=opts.cancel||'CANCELAR';if(typeof d.showModal!=='function'){resolve(null);notify('Tu navegador no admite esta ventana. Usa Chrome actualizado.');return;}const done=()=>{d.removeEventListener('close',done);resolve(d.returnValue==='ok'?(opts.label?inp.value:true):null)};d.addEventListener('close',done);d.showModal();if(opts.label)inp.focus();});}
-function awardsFor(key){const ev=eventsFor(key);const baseline=db.settings.baseline;const actual=ev.length;let ret=[];if(key>=db.settings.official&&key<today()&&ev.length>0){
-for(const [pct,title,emoji] of [[10,'Primer paso','🥉'],[25,'Buen camino','🥈'],[50,'Gran avance','🥇'],[75,'Dominio personal','💎']])if(actual<=baseline*(1-pct/100))ret.push({key:key+'-pct'+pct,title,emoji,day:key});
-const goal=dayGoal(key);if(grams(ev)<=goal){let seven=true;for(let i=0;i<7;i++){let d=adjDay(key,-i);if(d<db.settings.official||d>=today()||!eventsFor(d).length||grams(eventsFor(d))>dayGoal(d))seven=false;}if(seven)ret.push({key:key+'-week',title:'Semana de progreso',emoji:'🏆',day:key});}}
-const iv=intervals(ev);if(iv.some(x=>x>=60))ret.push({key:key+'-interval1',title:'Una hora de control',emoji:'⭐',day:key});let run=0, best=0;iv.forEach(x=>{run=x!==null&&x>=60?run+1:0;best=Math.max(best,run)});if(best>=5)ret.push({key:key+'-interval5',title:'Buen ritmo',emoji:'🌟',day:key});if(iv.length>=2&&iv.every(x=>x===null||x>=60)&&iv.some(x=>x>=60))ret.push({key:key+'-intervalall',title:'Día sin prisas',emoji:'🏅',day:key});return ret;
+function awardsFor(key){
+ const ev=eventsFor(key),closed=key<today(),tracked=db.trackedDays[key]===true;
+ const iv=ev.slice(1).map((e,i)=>(e.at-ev[i].at)/MS);
+ // Los intervalos para premios deben estar dentro de la misma jornada y no ser pausas nocturnas prolongadas.
+ const qualifying=iv.map(x=>x>=60&&x<=240);
+ let ret=[];
+ if(closed&&tracked&&ev.length){
+   const baseline=db.settings.baseline,actual=ev.length;
+   const tiers=[[75,'Dominio personal','💎'],[50,'Gran avance','🥇'],[25,'Buen camino','🥈'],[10,'Primer paso','🥉']];
+   const winner=tiers.find(([pct])=>actual<=baseline*(1-pct/100));
+   if(winner)ret.push({key:key+'-pct'+winner[0],title:winner[1],emoji:winner[2],day:key});
+   if(grams(ev)<=dayGoal(key)){
+     let seven=true;
+     for(let i=0;i<7;i++){
+       const d=adjDay(key,-i),records=eventsFor(d);
+       if(d<db.settings.official||d>=today()||db.trackedDays[d]!==true||!records.length||grams(records)>dayGoal(d))seven=false;
+     }
+     if(seven)ret.push({key:key+'-week',title:'Semana de progreso',emoji:'🏆',day:key});
+   }
+ }
+ // Premios por intervalos: solo con dos cigarrillos de la misma jornada.
+ // Registros retroactivos anteriores al seguimiento no pueden crear premios.
+ if(tracked&&key>=db.settings.official&&qualifying.some(Boolean))
+   ret.push({key:key+'-interval1',title:'Una hora de control',emoji:'⭐',day:key});
+ let run=0,best=0;
+ qualifying.forEach(ok=>{run=ok?run+1:0;best=Math.max(best,run)});
+ if(tracked&&best>=5)ret.push({key:key+'-interval5',title:'Buen ritmo',emoji:'🌟',day:key});
+ if(closed&&tracked&&iv.length>0&&qualifying.every(Boolean))
+   ret.push({key:key+'-intervalall',title:'Día sin prisas',emoji:'🏅',day:key});
+ return ret;
 }
 function awards(){let a=[];for(let d=db.settings.official;d<=today();d=adjDay(d,1)){a.push(...awardsFor(d));if(a.length>5000)break;}return a;}
 function renderToday(){let key=today(),ev=eventsFor(key),g=grams(ev),goal=dayGoal(key), pct=goal>0?g/goal*100:0,all=sorted(),last=all.at(-1),elapsed=last?(Date.now()-last.at)/MS:null;
@@ -49,7 +77,7 @@ function renderHistory(){const t=today();let closed=[];for(let d=adjDay(t,-30);d
 const rows=$('dayRows');rows.replaceChildren();for(let d=adjDay(t,-6);d<=t;d=adjDay(d,1)){if(!afterStart(d))continue;const e=eventsFor(d);rows.append(listRow(`${d} · ${e.length} cig. · ${fmt(grams(e),2)} g`,`${violations(e)} intervalos inferiores a 60 min · Media: ${meanInterval(e)??'—'} min`,{label:'VER',click:()=>{selectedDay=d;$('dayPick').value=d;renderSelected()}}))}
 if(!selectedDay||selectedDay>t||selectedDay<db.settings.official)selectedDay=t;$('dayPick').min=db.settings.official;$('dayPick').max=t;$('dayPick').value=selectedDay;renderSelected();const a=awards();$('badges').replaceChildren();if(!a.length)$('badges').textContent='Aún no hay medallas registradas.';else a.slice(-70).reverse().forEach(x=>$('badges').append(listRow(x.emoji+' '+x.title,x.day)));
 }
-function renderSelected(){let key=selectedDay||today(),ev=eventsFor(key);const el=$('eventRows');el.replaceChildren();if(!ev.length){el.textContent='No hay cigarrillos registrados esta jornada.';return}for(let e of [...ev].reverse())el.append(listRow(clock(e.at)+' · '+fmt(e.weight,2)+' g','Registro del '+stamp(e.at),{label:'ELIMINAR',click:async()=>{if(await ask('Eliminar registro','¿Eliminar este cigarrillo? También se recalcularán los intervalos.')===true){db.events=db.events.filter(x=>x.id!==e.id);save();renderAll()}}}));}
+function renderSelected(){let key=selectedDay||today(),ev=eventsFor(key);const el=$('eventRows');el.replaceChildren();if(!ev.length){el.textContent='No hay cigarrillos registrados esta jornada.';return}for(let e of ev)el.append(listRow(clock(e.at)+' · '+fmt(e.weight,2)+' g','Registro del '+stamp(e.at),{label:'ELIMINAR',click:async()=>{if(await ask('Eliminar registro','¿Eliminar este cigarrillo? También se recalcularán los intervalos.')===true){db.events=db.events.filter(x=>x.id!==e.id);save();renderAll()}}}));}
 const stockTotal=()=>db.stockEvents.reduce((a,b)=>a+b.delta,0)-grams(db.events);
 const packOpen=()=>db.packs.find(p=>p.opened&&!p.closed);
 function renderStock(){const total=stockTotal(),unopened=db.packs.filter(p=>!p.opened).length,current=packOpen();$('stockGrams').textContent=(total < -0.001?'⚠ ':'')+fmt(total,2)+' g';$('unopened').textContent=String(unopened);$('openPack').disabled=!unopened;$('packStats').textContent=current?`Paquete abierto: ${stamp(current.opened)}. Duración hasta hoy: ${fmt((Date.now()-current.opened)/86400000,1)} días.`:'No hay paquete abierto registrado.';
@@ -57,11 +85,11 @@ const se=$('stockEvents');se.replaceChildren();[...db.stockEvents].sort((a,b)=>b
 function renderSettings(){const s=db.settings;for(const k of ['goal','weight','wake','rollover','baseline','official'])$(k).value=s[k];}
 function renderAll(){renderToday();if(active==='history')renderHistory();if(active==='stock')renderStock();if(active==='settings')renderSettings();}
 function tab(t){active=t;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!==t);renderAll();}
-async function addCig(at){if(!db.initialWeighingDone){await onboarding();if(!db.initialWeighingDone){notify('Antes de registrar, confirma el pesaje inicial en COMPRAS.');return;}}if(!Number.isFinite(at)||dayKey(at)<db.settings.official){notify('El seguimiento comienza el '+db.settings.official.split('-').reverse().join('/')+'. No se registran cigarrillos anteriores.');return;}if(at>Date.now()+MS){notify('No se permiten registros futuros.');return;}if(db.events.some(e=>Math.abs(e.at-at)<15000)){notify('Ya existe un registro a esta hora.');return;}const all=sorted(),prev=[...all].reverse().find(e=>e.at<at),next=all.find(e=>e.at>at);let iv=prev?(at-prev.at)/MS:null;let following=next?(next.at-at)/MS:null;
+async function addCig(at,retro=false){if(!db.initialWeighingDone){await onboarding();if(!db.initialWeighingDone){notify('Antes de registrar, confirma el pesaje inicial en COMPRAS.');return;}}if(!Number.isFinite(at)||dayKey(at)<db.settings.official){notify('El seguimiento comienza el '+db.settings.official.split('-').reverse().join('/')+'. No se registran cigarrillos anteriores.');return;}if(at>Date.now()+MS){notify('No se permiten registros futuros.');return;}if(db.events.some(e=>Math.abs(e.at-at)<15000)){notify('Ya existe un registro a esta hora.');return;}const all=sorted(),prev=[...all].reverse().find(e=>e.at<at),next=all.find(e=>e.at>at);let iv=prev?(at-prev.at)/MS:null;let following=next?(next.at-at)/MS:null;
 if((iv!==null&&iv<60)||(following!==null&&following<60)){let n=iv!==null&&iv<60?Math.max(0,Math.floor(iv)):Math.max(0,Math.floor(following));let msg=iv!==null&&iv<60?`Han pasado solo ${n} ${n===1?'minuto':'minutos'} desde el anterior.`:`Quedarían solo ${n} ${n===1?'minuto':'minutos'} hasta el siguiente registrado.`;let res=await ask('⚠ Intervalo corto',msg+' ¿Registrarlo igualmente?',{ok:'REGISTRAR',cancel:'ESPERAR'});if(!res)return;}
-const k=dayKey(at);if(!(k in db.goalHistory))db.goalHistory[k]=db.settings.goal;db.events.push(newEvent(at));save();renderAll();notify('Cigarrillo registrado.');}
+const k=dayKey(at);if(!(k in db.goalHistory))db.goalHistory[k]=db.settings.goal;db.events.push(newEvent(at));if(!retro&&k===today())db.trackedDays[k]=true;save();renderAll();notify('Cigarrillo registrado.');}
 $('smoke').onclick=()=>addCig(Date.now());$('undo').onclick=async()=>{let e=sorted().at(-1);if(!e){notify('No hay cigarrillos registrados.');return}if(dayKey(e.at)!==today()){notify('El último registro pertenece a otra jornada. Elimínalo desde HISTORIAL.');return}if(await ask('Deshacer último',`¿Eliminar el cigarrillo de las ${stamp(e.at)}?`)===true){db.events=db.events.filter(x=>x.id!==e.id);save();renderAll();notify('Registro deshecho.')}};
-$('retro').onclick=async()=>{const key=today(),date=key;let val=await ask('Registrar cigarrillo olvidado','Introduce fecha y hora reales (formato AAAA-MM-DDTHH:MM).',{label:'Fecha y hora',type:'datetime-local',value:`${date}T12:00`});if(!val)return;const at=new Date(val).getTime();if(!Number.isFinite(at)){notify('Fecha no válida.');return}await addCig(at)};
+$('retro').onclick=async()=>{const key=today(),date=key;let val=await ask('Registrar cigarrillo olvidado','Introduce fecha y hora reales (formato AAAA-MM-DDTHH:MM).',{label:'Fecha y hora',type:'datetime-local',value:`${date}T12:00`});if(!val)return;const at=new Date(val).getTime();if(!Number.isFinite(at)){notify('Fecha no válida.');return}await addCig(at,true)};
 $('dayPick').onchange=e=>{selectedDay=e.target.value;renderSelected()};$('resetDay').onclick=async()=>{const key=selectedDay||today();let count=eventsFor(key).length;if(!count){notify('Esta jornada no contiene registros.');return}if(await ask('BORRAR REGISTROS',`Se eliminarán los ${count} registros del ${key}, sin posibilidad de recuperarlos salvo mediante copia de seguridad. ¿Confirmas?`,{ok:'BORRAR'})){db.events=db.events.filter(e=>dayKey(e.at)!==key);save();renderAll();notify('Jornada vaciada.')}};
 $('buy').onclick=async()=>{if(await ask('Comprar paquete','Añadir 30 g al inventario y un paquete sin abrir. ¿Confirmas?')){let at=Date.now();db.packs.push({id:uid(),bought:at,opened:null,closed:null});db.stockEvents.push({id:uid(),at,type:'Compra de paquete',delta:30});save();renderAll();notify('Paquete comprado: +30 g.')}};
 $('openPack').onclick=async()=>{if(!db.packs.some(p=>!p.opened)){notify('No tienes paquetes sin abrir registrados.');return}if(await ask('Estrenar paquete','Se cerrará el paquete abierto (si existe) y se abrirá uno comprado. No se sumarán otros 30 g. ¿Confirmas?')){const at=Date.now();let current=packOpen();if(current)current.closed=at;db.packs.find(p=>!p.opened).opened=at;save();renderAll();notify('Paquete nuevo abierto.')}};
@@ -70,7 +98,9 @@ $('initialPack').onclick=async()=>{let v=await ask('Paquete abierto hoy','Introd
 $('saveSettings').onclick=async()=>{const goal=Number($('goal').value),weight=Number($('weight').value),baseline=Number($('baseline').value),wake=$('wake').value,rollover=$('rollover').value,official=$('official').value;
 if(!(goal>=.5&&goal<=30&&weight>=.1&&weight<=2&&Number.isInteger(baseline)&&baseline>=1&&baseline<=100&&/^\d\d:\d\d$/.test(wake)&&/^\d\d:\d\d$/.test(rollover)&&/^\d{4}-\d{2}-\d{2}$/.test(official))){notify('Revisa los valores de configuración.');return}if(db.events.length&&(rollover!==db.settings.rollover||official!==db.settings.official)){notify('No se puede cambiar la hora de cierre ni el inicio oficial tras registrar consumo: alteraría el historial.');return}const k=today();if(k>=db.settings.official&&!(k in db.goalHistory))db.goalHistory[k]=db.settings.goal;db.settings={goal,weight,baseline,wake,rollover,official};if(k>=official&&!eventsFor(k).length)db.goalHistory[k]=goal;save();renderAll();notify('Configuración guardada.');};
 $('export').onclick=()=>{let payload=JSON.stringify(db,null,2),blob=new Blob([payload],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='LIBERTAD67-copia-'+dayISO(new Date())+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);notify('Copia de seguridad preparada. Guárdala fuera del navegador.')};
-$('import').onchange=async e=>{let f=e.target.files?.[0];if(!f)return;try{if(f.size>5e6)throw Error('Archivo demasiado grande');const incoming=JSON.parse(await f.text());if(incoming.version!==1||!Array.isArray(incoming.events)||!Array.isArray(incoming.stockEvents)||!Array.isArray(incoming.packs)||!incoming.settings||!/^\d{4}-\d{2}-\d{2}$/.test(incoming.settings.official))throw Error('Formato incompatible');if(await ask('IMPORTAR COPIA','Se sustituirán todos los datos actuales de LIBERTAD 67 por los del archivo. Haz antes una exportación si quieres conservarlos.',{ok:'IMPORTAR'})){db=incoming;db.goalHistory ||= {};save();selectedDay=null;renderAll();notify('Copia importada correctamente.')}}catch(err){notify('Error al importar: '+err.message)}finally{e.target.value=''}};
+$('import').onchange=async e=>{let f=e.target.files?.[0];if(!f)return;try{if(f.size>5e6)throw Error('Archivo demasiado grande');const incoming=JSON.parse(await f.text());if(incoming.version!==1||!Array.isArray(incoming.events)||!Array.isArray(incoming.stockEvents)||!Array.isArray(incoming.packs)||!incoming.settings||!/^\d{4}-\d{2}-\d{2}$/.test(incoming.settings.official))throw Error('Formato incompatible');if(await ask('IMPORTAR COPIA','Se sustituirán todos los datos actuales de LIBERTAD 67 por los del archivo. Haz antes una exportación si quieres conservarlos.',{ok:'IMPORTAR'})){db=incoming;db.goalHistory ||= {};
+// Una jornada seguida en directo se distingue de una con registros solo retroactivos.
+db.trackedDays ||= {};save();selectedDay=null;renderAll();notify('Copia importada correctamente.')}}catch(err){notify('Error al importar: '+err.message)}finally{e.target.value=''}};
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>tab(b.dataset.tab));
 async function onboarding(){if(busy||today()<db.settings.official||db.initialWeighingDone)return;
 if(db.stockEvents.some(e=>e.type==='Pesaje inicial')||(db.events.length===0&&db.stockEvents.some(e=>e.type==='Ajuste de inventario'))){db.initialWeighingDone=true;save();return;}

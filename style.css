@@ -23,3 +23,7 @@ dialog{border:1px solid #97bcb3;background:white;color:#183c40;border-radius:16p
 .barplot .bar.current{background:#2877ba}
 .targetline{position:absolute;left:0;right:0;border-top:2px dashed #cc7e22;z-index:2;pointer-events:none}
 .barwrap small{font-size:10px;margin:0;color:#486861}
+
+/* V6.2: jornada de referencia */
+.barplot .bar.reference{background:#7c9094}
+#referenceBanner{background:#edf5f8;padding:10px;border-left:4px solid #2783ad;border-radius:5px;margin:0 0 14px;font-size:13px}

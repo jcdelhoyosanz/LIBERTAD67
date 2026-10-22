@@ -140,3 +140,21 @@ function syncDay(){
 function refresh(){syncDay();renderToday();if(active==='stock')renderStock();if(today()>=db.settings.official&&!db.initialWeighingDone&&document.visibilityState==='visible'&&!$('dialog').open)onboarding()}
 syncDay();renderAll();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh()});window.addEventListener('focus',refresh);setInterval(()=>{if(document.visibilityState==='visible'){if(db.lastSeenDay!==today())refresh();else renderToday()}},30000);setTimeout(onboarding,700);
 })();
+
+// V6.4: preferencia local independiente de la copia de seguridad de consumos.
+(function initDisplayDensity(){
+  const input=document.getElementById('density');
+  if(!input)return;
+  const storageKey='libertad67-display-density';
+  let choice='normal';
+  try{choice=localStorage.getItem(storageKey)||'normal'}catch(_e){}
+  if(!['normal','compact','dense'].includes(choice))choice='normal';
+  const setDensity=value=>{
+    const safe=['normal','compact','dense'].includes(value)?value:'normal';
+    document.documentElement.dataset.density=safe;
+    input.value=safe;
+    try{localStorage.setItem(storageKey,safe)}catch(_e){}
+  };
+  setDensity(choice);
+  input.addEventListener('change',()=>setDensity(input.value));
+})();

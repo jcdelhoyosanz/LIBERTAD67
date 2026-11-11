@@ -1,1 +1,46 @@
-{"name":"LIBERTAD 67","short_name":"LIBERTAD 67","description":"Tu consumo, tus decisiones","lang":"es","start_url":"./","scope":"./","display":"standalone","background_color":"#102c30","theme_color":"#102c30","icons":[{"src":"./icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},{"src":"./icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}]}
+{
+  "name": "Portugal & Sevilla · Roci 2026",
+  "short_name": "Portugal Sevilla",
+  "description": "Guía operativa del viaje en Roci, 16–28 noviembre 2026",
+  "start_url": "./?pwa=3",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3efe6",
+  "theme_color": "#173c4d",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "id": "./portugal-sevilla-roci-2026-v2",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "Guía PDF completa",
+      "short_name": "Guía PDF",
+      "description": "Abrir la guía completa del viaje",
+      "url": "./guia.pdf",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}

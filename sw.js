@@ -1,5 +1,5 @@
-const CACHE="portugal-sevilla-v1-7-doble-opcion";
-const ASSETS=["./","./index.html","./manifest.webmanifest","./icon-192.png","./icon-512.png","./guia.pdf?v=20261111-final"];
+const CACHE="portugal-sevilla-FINAL-20261111-2";
+const ASSETS=["./","./index.html","./manifest.webmanifest","./icon-192.png","./icon-512.png","./guia.pdf?v=20261111-final2"];
 
 self.addEventListener("install", event => {
   self.skipWaiting();
@@ -16,7 +16,7 @@ self.addEventListener("fetch", event => {
   if (url.pathname.endsWith("/guia.pdf")) {
     event.respondWith(fetch(event.request).then(response => {
       const copy=response.clone(); caches.open(CACHE).then(cache => cache.put(event.request,copy)); return response;
-    }).catch(() => caches.match(event.request).then(r => r || caches.match("./guia.pdf?v=20261111-final"))));
+    }).catch(() => caches.match(event.request).then(r => r || caches.match("./guia.pdf?v=20261111-final2"))));
     return;
   }
   event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
